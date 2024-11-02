@@ -1,12 +1,22 @@
+// https://raw.githack.com/
+// https://stackoverflow.com/questions/33056230/uncaught-typeerror-ready-is-not-a-function
+
 export class DOM {
-  public static createButton(label: string, onClick: () => void) {
-    (function ($) {
+  public static createButton(
+    label: string,
+    onClick: () => void,
+    id: string = ""
+  ) {
+    return (function ($) {
       const btn = $("<button/>", {
         text: label,
         click: onClick,
       });
 
+      $(btn).attr("id", id);
       $("#erlib_menu").append(btn);
+
+      return btn;
     })(jQuery);
   }
 
@@ -15,14 +25,23 @@ export class DOM {
       $("head").append(
         $('<link rel="stylesheet" type="text/css" />').attr(
           "href",
-          "https://rawcdn.githack.com/ERisberg/smarkeloo/2fa7798df485b2d209ab06137378099c00462d1d/src/css/main.css"
+          "https://raw.githack.com/ERisberg/smarkeloo/main/src/css/main.css"
         )
       );
 
       const menu = $("<div></div>");
       $(menu).attr("id", "erlib_menu").addClass("erlib_menu");
 
+      const toggleBtn = DOM.createButton(
+        "Toggle",
+        () => DOM.toggleMenu(),
+        "erlib_toggleBtn"
+      );
+      $(menu).append(toggleBtn);
+
       $("body").append(menu);
     })(jQuery);
   }
+
+  public static toggleMenu() {}
 }
