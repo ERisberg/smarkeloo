@@ -1,3 +1,7 @@
-.red {
-  background-color: red;
+.erlib_menu {
+  position: "absolute";
+  top: "0";
+  left: "0";
+  z-index: "100";
+  padding: 0.5rem;
 }
