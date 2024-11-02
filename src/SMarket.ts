@@ -5,28 +5,27 @@ import { Util } from "./Util";
 export class SMarket implements LoggerInjected {
   public logger: Logger;
 
-  private static intervals: Map<NodeJS.Timeout, { itemName: string }> =
-    new Map();
+  private static intervals: Map<string, NodeJS.Timeout> = new Map();
+
+  private static fetchKeys: Map<string, boolean> = new Map();
 
   constructor() {
     this.logger = Logger.getLogger("[ERLib Market]");
   }
 
-  public responseCodes = {
-    1: "success",
-    42: "failure",
-  };
+  static RES_FAILURE = 42;
+  static RES_SUCCESS = 1;
 
-  public cancelBuyOrderCreation(interval: NodeJS.Timeout) {
+  public cancelBuyOrderCreation(mItemName: string) {
+    const interval = SMarket.intervals.get(mItemName);
     clearInterval(interval);
 
-    const value = SMarket.intervals.get(interval);
-    this.logger.log(`Canceled buy order attempt: ${value?.itemName}`);
+    this.logger.log(`Canceled buy order attempt: ${mItemName}`);
 
-    SMarket.intervals.delete(interval);
+    SMarket.intervals.delete(mItemName);
   }
 
-  public async tryCreateBuyOrder(
+  public async tryCreateBuyOrderInterval(
     appid: number,
     mHashName: string,
     mItemName: string,
@@ -38,25 +37,127 @@ export class SMarket implements LoggerInjected {
     const { wallet_currency } = Util.getWalletInfo();
     const currencyDisp = SCurrencies[wallet_currency - 1].symbol;
 
+    let response = null;
     let attempt = 0;
 
+    const createOrder = async () => {
+      return await this.createBuyOrder(
+        appid,
+        mHashName,
+        mItemName,
+        quantity,
+        price
+      );
+    };
+
+    const dispose = () => {
+      clearInterval(interval);
+      SMarket.intervals.delete(mItemName);
+    };
+
     const interval = setInterval(async () => {
+      this.logger.log(
+        `(${attempt}) Trying to create buy order: ${mItemName} | ${quantity}x${price}${currencyDisp} (${
+          price * quantity
+        }${currencyDisp})`
+      );
+
+      attempt++;
+      response = await createOrder();
+
+      if (response.success === SMarket.RES_FAILURE) {
+        this.logger.log(
+          `(${attempt}) Failed: ${mItemName}, ${response.message}`
+        );
+      } else if (response.success === SMarket.RES_SUCCESS) {
+        this.logger.log(`(${attempt}) Success: ${mItemName}`);
+        dispose();
+        return response;
+      }
+
+      if (attempt === attempts || response.success === SMarket.RES_SUCCESS) {
+        dispose();
+        return response;
+      }
+    }, delayMS);
+
+    SMarket.intervals.set(mItemName, interval);
+    return response;
+  }
+
+  public cancelBuyOrderAttempt(mItemName: string) {
+    SMarket.fetchKeys.delete(mItemName);
+  }
+
+  public async tryCreateBuyOrder(
+    appid: number,
+    mHashName: string,
+    mItemName: string,
+    quantity: number,
+    price: number,
+    attempts: number
+  ) {
+    SMarket.fetchKeys.set(mItemName, true);
+
+    const { wallet_currency } = Util.getWalletInfo();
+    const currencyDisp = SCurrencies[wallet_currency - 1].symbol;
+
+    let attempt = 0;
+
+    const createOrder = async () => {
+      return await this.createBuyOrder(
+        appid,
+        mHashName,
+        mItemName,
+        quantity,
+        price
+      );
+    };
+
+    let response = await createOrder();
+
+    const checkKey = () => {
+      const val = SMarket.fetchKeys.get(mItemName);
+      if (val === false || val === undefined) return false;
+
+      return true;
+    };
+
+    const checkAttempt = () => {
+      if (attempts < 0) return true;
+
+      return attempt < attempts;
+    };
+
+    while (
+      response.success === SMarket.RES_FAILURE &&
+      checkKey() &&
+      checkAttempt()
+    ) {
       this.logger.log(
         `(${attempt}) Trying to create buy order: ${mItemName} | ${quantity}x${currencyDisp}${price} (${currencyDisp}${
           price * quantity
         })`
       );
 
+      response = await createOrder();
       attempt++;
 
-      if (attempt === attempts) {
-        clearInterval(interval);
-        SMarket.intervals.delete(interval);
+      if (response.success === SMarket.RES_FAILURE) {
+        this.logger.log(`(${attempt}) Failed: retrying ${mItemName}`);
       }
-    }, delayMS);
+    }
 
-    SMarket.intervals.set(interval, { itemName: mItemName });
-    return interval;
+    if (response.success === SMarket.RES_SUCCESS) {
+      this.logger.log(
+        `(${attempt}) Buy order success: ${mItemName} | ${quantity}x${currencyDisp}${price} (${currencyDisp}${
+          price * quantity
+        })`
+      );
+    }
+
+    SMarket.fetchKeys.delete(mItemName);
+    return response;
   }
 
   public async createBuyOrder(
